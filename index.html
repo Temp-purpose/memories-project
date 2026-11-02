@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Our Constellation Thread</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #070913;
+      --gold: #f3c262;
+      --rose: #f472b6;
+      --card-bg: rgba(20, 24, 45, 0.88);
+      --border: rgba(243, 194, 98, 0.3);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+    #star-canvas {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
+    #gate {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .gate-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      padding: 30px;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 360px;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    }
+    .gate-box h2 { color: var(--gold); margin-bottom: 8px; font-weight: 600; }
+    .gate-box p { color: #94a3b8; font-size: 0.85rem; margin-bottom: 20px; }
+    input[type="password"], input[type="text"], input[type="date"], select, textarea {
+      width: 100%;
+      padding: 11px;
+      background: rgba(10, 12, 26, 0.85);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.95rem;
+      margin-bottom: 12px;
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--gold); }
+    .btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, var(--gold), var(--rose));
+      border: none;
+      border-radius: 8px;
+      color: #070913;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    #app-view { display: none; position: relative; z-index: 10; padding: 40px 20px 100px 20px; }
+    header { text-align: center; margin-bottom: 40px; }
+    header h1 {
+      font-size: 1.8rem;
+      background: linear-gradient(to right, var(--gold), var(--rose));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 6px;
+    }
+    header p { color: #94a3b8; font-size: 0.85rem; }
+    .timeline {
+      position: relative;
+      max-width: 680px;
+      margin: 0 auto;
+      min-height: 200px;
+    }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 0;
+      left: 50%;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--gold), var(--rose), transparent);
+      box-shadow: 0 0 12px var(--gold);
+      transform: translateX(-50%);
+    }
+    .node {
+      position: relative;
+      margin-bottom: 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .node-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 10px var(--gold);
+      margin-bottom: 12px;
+      z-index: 2;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      width: 90%;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      position: relative;
+    }
+    .card img {
+      width: 100%;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      display: block;
+    }
+    .card p { font-size: 0.95rem; line-height: 1.5; color: #e2e8f0; white-space: pre-wrap; }
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .card .date { font-size: 0.78rem; color: #94a3b8; }
+    .card-actions button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 0.95rem;
+      color: #94a3b8;
+      margin-left: 10px;
+      transition: color 0.2s;
+    }
+    .card-actions button:hover { color: var(--gold); }
+    .card-actions button.del:hover { color: #f87171; }
+    .fab {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--gold), var(--rose));
+      border: none;
+      color: #070913;
+      font-size: 1.8rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(243, 194, 98, 0.4);
+      z-index: 50;
+    }
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 60;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-box {
+      background: #111429;
+      border: 1px solid var(--border);
+      padding: 24px;
+      border-radius: 14px;
+      width: 100%;
+      max-width: 440px;
+    }
+    .modal-box h3 { color: var(--gold); margin-bottom: 12px; }
+    label { font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 4px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+
+  <canvas id="star-canvas"></canvas>
+
+  <!-- Lock Gate -->
+  <div id="gate">
+    <div class="gate-box">
+      <h2>The Thread</h2>
+      <p>Enter secret passphrase to decrypt</p>
+      <input type="password" id="gate-pass" placeholder="Shared Passphrase" />
+      <button class="btn" id="unlock-btn">Decrypt & Enter</button>
+      <span id="gate-status" style="font-size: 0.8rem; color: var(--rose); margin-top: 10px; display: block;"></span>
+    </div>
+  </div>
+
+  <!-- App Main Screen -->
+  <div id="app-view">
+    <header>
+      <h1>US</h1>
+     
+    </header>
+
+    <div class="timeline" id="timeline-container"></div>
+
+    <button class="fab" id="fab-btn">+</button>
+  </div>
+
+  <!-- Memory Modal (Used for both Adding and Editing) -->
+  <div class="modal" id="memory-modal">
+    <div class="modal-box">
+      <h3 id="modal-title">Add Memory</h3>
+      
+      <div id="position-container">
+        <label>Placement along thread</label>
+        <select id="insert-position">
+          <option value="end">At the very end (Latest)</option>
+          <option value="start">At the very start (Oldest)</option>
+        </select>
+      </div>
+
+      <label>Date of Memory</label>
+      <input type="date" id="memory-date" />
+
+      <label>Photo or Screenshot (Optional)</label>
+      <input type="file" id="img-input" accept="image/*" style="margin-bottom: 12px; color: #94a3b8;" />
+      <div id="current-img-preview" style="font-size: 0.75rem; color: var(--gold); margin-bottom: 8px;"></div>
+
+      <label>Note / Context</label>
+      <textarea id="note-input" rows="4" placeholder="Write context or memory note..."></textarea>
+      
+      <button class="btn" id="save-btn">Encrypt & Save</button>
+      <button class="btn" id="cancel-btn" style="background: transparent; color: #94a3b8; margin-top: 6px;">Cancel</button>
+      <div id="upload-status" style="font-size: 0.8rem; color: var(--gold); margin-top: 8px; text-align: center;"></div>
+    </div>
+  </div>
+
+  <script>
+    // --- 1. CONFIGURATION ---
+       const SUPABASE_URL = "https://mvodaipgbssaqxsabsmg.supabase.co/rest/v1/"; 
+    const SUPABASE_ANON_KEY = "sb_publishable_EBAAhme61mn69gpETvm3RQ_9uX6x7FS";
+
+    let supabaseClient = null;
+    if (window.supabase && SUPABASE_URL.startsWith("http") && !SUPABASE_URL.includes("YOUR_SUPABASE")) {
+      try {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      } catch (e) {
+        console.error("Supabase config error:", e);
+      }
+    }
+
+    let activePass = "";
+    let memoriesList = [];
+    let editingMemoryId = null;
+    let existingImgData = null;
+
+    // --- 2. INDEXEDDB SETUP ---
+    function openLocalDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open("ConstellationDB", 2);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains("memories")) {
+            db.createObjectStore("memories", { keyPath: "id" });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function saveAllLocal(list) {
+      const db = await openLocalDB();
+      return new Promise((res) => {
+        const tx = db.transaction("memories", "readwrite");
+        const store = tx.objectStore("memories");
+        store.clear();
+        list.forEach(item => store.put(item));
+        tx.oncomplete = () => res();
+      });
+    }
+
+    async function getAllLocal() {
+      try {
+        const db = await openLocalDB();
+        return new Promise((res) => {
+          const tx = db.transaction("memories", "readonly");
+          const req = tx.objectStore("memories").getAll();
+          req.onsuccess = () => res(req.result || []);
+          req.onerror = () => res([]);
+        });
+      } catch (e) { return []; }
+    }
+
+    // --- 3. AES-256 WEBCRYPTO ---
+    async function deriveKey(passphrase, saltBytes) {
+      const enc = new TextEncoder();
+      const baseKey = await crypto.subtle.importKey(
+        "raw", enc.encode(passphrase), "PBKDF2", false, ["deriveKey"]
+      );
+      return crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt: saltBytes, iterations: 100000, hash: "SHA-256" },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    async function encryptPayload(plainObj, passphrase) {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await deriveKey(passphrase, salt);
+      const encoded = new TextEncoder().encode(JSON.stringify(plainObj));
+      const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+
+      return {
+        ciphertext: btoa(String.fromCharCode(...new Uint8Array(cipher))),
+        iv: btoa(String.fromCharCode(...iv)),
+        salt: btoa(String.fromCharCode(...salt))
+      };
+    }
+
+    async function decryptPayload(ciphertext, ivStr, saltStr, passphrase) {
+      const salt = Uint8Array.from(atob(saltStr), c => c.charCodeAt(0));
+      const iv = Uint8Array.from(atob(ivStr), c => c.charCodeAt(0));
+      const cipherBytes = Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0));
+      const key = await deriveKey(passphrase, salt);
+      
+      const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherBytes);
+      return JSON.parse(new TextDecoder().decode(decrypted));
+    }
+
+    // --- 4. UNLOCK & SYNC ---
+    async function handleUnlock() {
+      const pass = document.getElementById("gate-pass").value.trim();
+      const statusEl = document.getElementById("gate-status");
+      
+      if (!pass) {
+        statusEl.innerText = "Please type a passphrase.";
+        return;
+      }
+      activePass = pass;
+      statusEl.innerText = "Opening thread...";
+
+      const local = await getAllLocal();
+      if (local && local.length > 0) {
+        memoriesList = local.sort((a,b) => (a.order || 0) - (b.order || 0));
+        renderTimeline();
+      }
+
+      if (supabaseClient && navigator.onLine) {
+        try {
+          const timeout = new Promise((_, reject) => setTimeout(() => reject("timeout"), 4000));
+          const query = supabaseClient.from("memories").select("*");
+          const res = await Promise.race([query, timeout]);
+
+          if (res && res.data && res.data.length > 0) {
+            const list = [];
+            for (let row of res.data) {
+              try {
+                const dec = await decryptPayload(row.ciphertext, row.iv, row.salt, pass);
+                list.push({ id: row.id, ...dec });
+              } catch (e) {
+                statusEl.innerText = "Incorrect passphrase for encrypted records.";
+                return;
+              }
+            }
+            if (list.length > 0) {
+              memoriesList = list.sort((a,b) => (a.order || 0) - (b.order || 0));
+              await saveAllLocal(memoriesList);
+              renderTimeline();
+            }
+          }
+        } catch (err) {
+          console.warn("Supabase bypass:", err);
+        }
+      }
+
+      document.getElementById("gate").style.display = "none";
+      document.getElementById("app-view").style.display = "block";
+    }
+
+    // --- 5. TIMELINE RENDERING WITH EDIT / DELETE BUTTONS ---
+    function renderTimeline() {
+      const container = document.getElementById("timeline-container");
+      container.innerHTML = "";
+      if (memoriesList.length === 0) {
+        container.innerHTML = `<p style="text-align:center; color:#94a3b8; margin-top:40px;">The thread is waiting. Tap + to add your first memory.</p>`;
+        return;
+      }
+      memoriesList.forEach((item, index) => {
+        const node = document.createElement("div");
+        node.className = "node";
+        node.innerHTML = `
+          <div class="node-dot"></div>
+          <div class="card">
+            ${item.imgData ? `<img src="${item.imgData}" alt="Memory" />` : ''}
+            <p>${item.note ? escapeHtml(item.note) : ''}</p>
+            <div class="card-footer">
+              <span class="date">${item.date || 'Timeless'}</span>
+              <div class="card-actions">
+                <button title="Edit memory" onclick="openEditModal('${item.id}')">✏️</button>
+                <button class="del" title="Delete memory" onclick="deleteMemory('${item.id}')">🗑️</button>
+              </div>
+            </div>
+          </div>
+        `;
+        container.appendChild(node);
+      });
+    }
+
+    function escapeHtml(str) {
+      const d = document.createElement("div");
+      d.innerText = str;
+      return d.innerHTML;
+    }
+
+    // --- 6. MODAL ACTIONS (ADD, INSERT IN-BETWEEN, EDIT) ---
+    function updatePositionDropdown() {
+      const select = document.getElementById("insert-position");
+      select.innerHTML = `
+        <option value="end">At the very end (Latest)</option>
+        <option value="start">At the very start (Oldest)</option>
+      `;
+      memoriesList.forEach((mem, idx) => {
+        const shortNote = mem.note ? mem.note.substring(0, 24) + "..." : `Memory #${idx + 1}`;
+        select.innerHTML += `<option value="after_${idx}">After: "${escapeHtml(shortNote)}"</option>`;
+      });
+    }
+
+    function openAddModal() {
+      editingMemoryId = null;
+      existingImgData = null;
+      document.getElementById("modal-title").innerText = "Add Memory";
+      document.getElementById("position-container").style.display = "block";
+      document.getElementById("note-input").value = "";
+      document.getElementById("img-input").value = "";
+      document.getElementById("current-img-preview").innerText = "";
+      document.getElementById("memory-date").value = new Date().toISOString().split("T")[0];
+      updatePositionDropdown();
+      document.getElementById("memory-modal").style.display = "flex";
+    }
+
+    window.openEditModal = function(id) {
+      const item = memoriesList.find(m => m.id === id);
+      if (!item) return;
+
+      editingMemoryId = id;
+      existingImgData = item.imgData || null;
+
+      document.getElementById("modal-title").innerText = "Edit Memory";
+      document.getElementById("position-container").style.display = "none"; // Position already established
+      document.getElementById("note-input").value = item.note || "";
+      document.getElementById("img-input").value = "";
+      document.getElementById("current-img-preview").innerText = existingImgData ? "Current photo attached. Pick a new file only if replacing it." : "";
+      
+      // Attempt to restore raw date or default to current
+      document.getElementById("memory-date").value = item.rawDate || new Date().toISOString().split("T")[0];
+      document.getElementById("memory-modal").style.display = "flex";
+    };
+
+    window.deleteMemory = async function(id) {
+      if (!confirm("Are you sure you want to remove this memory from the thread?")) return;
+      memoriesList = memoriesList.filter(m => m.id !== id);
+      
+      // Update local storage
+      await saveAllLocal(memoriesList);
+      renderTimeline();
+
+      // Delete from Supabase
+      if (supabaseClient && navigator.onLine) {
+        try {
+          await supabaseClient.from("memories").delete().eq("id", id);
+        } catch (e) {
+          console.warn("Cloud delete failed:", e);
+        }
+      }
+    };
+
+    function processImage(file) {
+      return new Promise((resolve) => {
+        if (!file) return resolve(null);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            let w = img.width, h = img.height;
+            const maxDim = 1200;
+            if (w > maxDim || h > maxDim) {
+              if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+              else { w = Math.round((w * maxDim) / h); h = maxDim; }
+            }
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL("image/jpeg", 0.75));
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    document.getElementById("save-btn").addEventListener("click", async () => {
+      const note = document.getElementById("note-input").value;
+      const fileInput = document.getElementById("img-input");
+      const status = document.getElementById("upload-status");
+      const dateVal = document.getElementById("memory-date").value;
+
+      if (!note && !fileInput.files[0] && !existingImgData) {
+        alert("Please write a note or select an image.");
+        return;
+      }
+
+      status.innerText = "Encrypting...";
+
+      let imgData = existingImgData;
+      if (fileInput.files && fileInput.files[0]) {
+        imgData = await processImage(fileInput.files[0]);
+      }
+
+      const formattedDate = dateVal 
+        ? new Date(dateVal).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'Timeless';
+
+      if (editingMemoryId) {
+        // --- EDIT EXISTING ---
+        const item = memoriesList.find(m => m.id === editingMemoryId);
+        item.note = note;
+        item.imgData = imgData;
+        item.date = formattedDate;
+        item.rawDate = dateVal;
+
+        const encrypted = await encryptPayload(item, activePass);
+        await saveAllLocal(memoriesList);
+
+        if (supabaseClient && navigator.onLine) {
+          status.innerText = "Syncing changes...";
+          try {
+            await supabaseClient.from("memories").update({
+              ciphertext: encrypted.ciphertext,
+              iv: encrypted.iv,
+              salt: encrypted.salt
+            }).eq("id", editingMemoryId);
+          } catch (e) { console.warn("Supabase update error:", e); }
+        }
+      } else {
+        // --- ADD / INSERT IN-BETWEEN ---
+        const recordId = "mem_" + Date.now();
+        const posVal = document.getElementById("insert-position").value;
+
+        const newMemory = {
+          id: recordId,
+          note: note,
+          imgData: imgData,
+          date: formattedDate,
+          rawDate: dateVal,
+          order: Date.now()
+        };
+
+        if (posVal === "start") {
+          memoriesList.unshift(newMemory);
+        } else if (posVal.startsWith("after_")) {
+          const targetIndex = parseInt(posVal.split("_")[1], 10);
+          memoriesList.splice(targetIndex + 1, 0, newMemory);
+        } else {
+          memoriesList.push(newMemory);
+        }
+
+        // Re-index order property
+        memoriesList.forEach((mem, idx) => { mem.order = idx * 10; });
+
+        const encrypted = await encryptPayload(newMemory, activePass);
+        await saveAllLocal(memoriesList);
+
+        if (supabaseClient && navigator.onLine) {
+          status.innerText = "Syncing with cloud...";
+          try {
+            await supabaseClient.from("memories").insert({
+              id: recordId,
+              ciphertext: encrypted.ciphertext,
+              iv: encrypted.iv,
+              salt: encrypted.salt
+            });
+          } catch (e) { console.warn("Supabase insert error:", e); }
+        }
+      }
+
+      renderTimeline();
+      document.getElementById("memory-modal").style.display = "none";
+      status.innerText = "";
+    });
+
+    // --- 7. EVENT LISTENERS ---
+    document.getElementById("unlock-btn").addEventListener("click", handleUnlock);
+    document.getElementById("gate-pass").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") handleUnlock();
+    });
+    document.getElementById("fab-btn").addEventListener("click", openAddModal);
+    document.getElementById("cancel-btn").addEventListener("click", () => {
+      document.getElementById("memory-modal").style.display = "none";
+    });
+
+    // --- 8. CANVAS STARS ---
+    const canvas = document.getElementById("star-canvas");
+    const ctx = canvas.getContext("2d");
+    let stars = [];
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      stars = Array.from({ length: 80 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: Math.random() * 1.5,
+        alpha: Math.random(),
+        speed: 0.005 + Math.random() * 0.01
+      }));
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#ffffff";
+      stars.forEach(s => {
+        ctx.globalAlpha = Math.abs(Math.sin(s.alpha));
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+        s.alpha += s.speed;
+      });
+      requestAnimationFrame(draw);
+    }
+    draw();
+  </script>
+</body>
+</html>
