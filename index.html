@@ -195,7 +195,7 @@
 
   <canvas id="star-canvas"></canvas>
 
-  <!-- Lock Gate -->
+  <!-- Lock Screen -->
   <div id="gate">
     <div class="gate-box">
       <h2>The Thread</h2>
@@ -209,8 +209,8 @@
   <!-- App Main Screen -->
   <div id="app-view">
     <header>
-      <h1>US</h1>
-     
+      <h1>Our Constellation Thread</h1>
+      <p>Zero logs. Zero visibility. Encrypted end-to-end.</p>
     </header>
 
     <div class="timeline" id="timeline-container"></div>
@@ -218,7 +218,7 @@
     <button class="fab" id="fab-btn">+</button>
   </div>
 
-  <!-- Memory Modal (Used for both Adding and Editing) -->
+  <!-- Modal for Adding and Editing -->
   <div class="modal" id="memory-modal">
     <div class="modal-box">
       <h3 id="modal-title">Add Memory</h3>
@@ -249,11 +249,11 @@
 
   <script>
     // --- 1. CONFIGURATION ---
-       const SUPABASE_URL = "https://mvodaipgbssaqxsabsmg.supabase.co/rest/v1/"; 
+    const SUPABASE_URL = "https://mvodaipgbssaqxsabsmg.supabase.co/rest/v1/"; 
     const SUPABASE_ANON_KEY = "sb_publishable_EBAAhme61mn69gpETvm3RQ_9uX6x7FS";
 
     let supabaseClient = null;
-    if (window.supabase && SUPABASE_URL.startsWith("http") && !SUPABASE_URL.includes("YOUR_SUPABASE")) {
+    if (window.supabase) {
       try {
         supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       } catch (e) {
@@ -304,7 +304,7 @@
       } catch (e) { return []; }
     }
 
-    // --- 3. AES-256 WEBCRYPTO ---
+    // --- 3. ZERO-KNOWLEDGE AES-256 WEBCRYPTO ---
     async function deriveKey(passphrase, saltBytes) {
       const enc = new TextEncoder();
       const baseKey = await crypto.subtle.importKey(
@@ -343,9 +343,10 @@
       return JSON.parse(new TextDecoder().decode(decrypted));
     }
 
-    // --- 4. UNLOCK & SYNC ---
+    // --- 4. VERIFIED UNLOCK & TIMELINE FETCH ---
     async function handleUnlock() {
-      const pass = document.getElementById("gate-pass").value.trim();
+      const passInput = document.getElementById("gate-pass");
+      const pass = passInput.value.trim();
       const statusEl = document.getElementById("gate-status");
       
       if (!pass) {
@@ -353,47 +354,59 @@
         return;
       }
       activePass = pass;
-      statusEl.innerText = "Opening thread...";
+      statusEl.innerText = "Connecting to thread...";
 
-      const local = await getAllLocal();
-      if (local && local.length > 0) {
-        memoriesList = local.sort((a,b) => (a.order || 0) - (b.order || 0));
-        renderTimeline();
-      }
-
+      // Fetch remote records from Supabase first
       if (supabaseClient && navigator.onLine) {
         try {
-          const timeout = new Promise((_, reject) => setTimeout(() => reject("timeout"), 4000));
-          const query = supabaseClient.from("memories").select("*");
-          const res = await Promise.race([query, timeout]);
+          const { data, error } = await supabaseClient.from("memories").select("*");
 
-          if (res && res.data && res.data.length > 0) {
+          if (error) {
+            console.error("Supabase Error:", error);
+            statusEl.innerText = "Cloud Sync Error: " + error.message;
+            return;
+          }
+
+          if (data && data.length > 0) {
             const list = [];
-            for (let row of res.data) {
+            for (let row of data) {
               try {
                 const dec = await decryptPayload(row.ciphertext, row.iv, row.salt, pass);
                 list.push({ id: row.id, ...dec });
               } catch (e) {
-                statusEl.innerText = "Incorrect passphrase for encrypted records.";
+                statusEl.innerText = "Incorrect passphrase.";
                 return;
               }
             }
-            if (list.length > 0) {
-              memoriesList = list.sort((a,b) => (a.order || 0) - (b.order || 0));
-              await saveAllLocal(memoriesList);
-              renderTimeline();
-            }
+            memoriesList = list.sort((a,b) => (a.order || 0) - (b.order || 0));
+            await saveAllLocal(memoriesList);
+            renderTimeline();
+            
+            sessionStorage.setItem("thread_session_key", pass);
+            document.getElementById("gate").style.display = "none";
+            document.getElementById("app-view").style.display = "block";
+            return;
           }
         } catch (err) {
-          console.warn("Supabase bypass:", err);
+          console.warn("Network fetch bypassed:", err);
         }
       }
 
+      // If no remote records exist yet, check local cache
+      const local = await getAllLocal();
+      if (local && local.length > 0) {
+        memoriesList = local.sort((a,b) => (a.order || 0) - (b.order || 0));
+      } else {
+        memoriesList = [];
+      }
+      renderTimeline();
+
+      sessionStorage.setItem("thread_session_key", pass);
       document.getElementById("gate").style.display = "none";
       document.getElementById("app-view").style.display = "block";
     }
 
-    // --- 5. TIMELINE RENDERING WITH EDIT / DELETE BUTTONS ---
+    // --- 5. TIMELINE RENDERING ---
     function renderTimeline() {
       const container = document.getElementById("timeline-container");
       container.innerHTML = "";
@@ -428,7 +441,7 @@
       return d.innerHTML;
     }
 
-    // --- 6. MODAL ACTIONS (ADD, INSERT IN-BETWEEN, EDIT) ---
+    // --- 6. MODAL ACTIONS (ADD, INSERT, EDIT, DELETE) ---
     function updatePositionDropdown() {
       const select = document.getElementById("insert-position");
       select.innerHTML = `
@@ -462,12 +475,10 @@
       existingImgData = item.imgData || null;
 
       document.getElementById("modal-title").innerText = "Edit Memory";
-      document.getElementById("position-container").style.display = "none"; // Position already established
+      document.getElementById("position-container").style.display = "none";
       document.getElementById("note-input").value = item.note || "";
       document.getElementById("img-input").value = "";
       document.getElementById("current-img-preview").innerText = existingImgData ? "Current photo attached. Pick a new file only if replacing it." : "";
-      
-      // Attempt to restore raw date or default to current
       document.getElementById("memory-date").value = item.rawDate || new Date().toISOString().split("T")[0];
       document.getElementById("memory-modal").style.display = "flex";
     };
@@ -476,11 +487,9 @@
       if (!confirm("Are you sure you want to remove this memory from the thread?")) return;
       memoriesList = memoriesList.filter(m => m.id !== id);
       
-      // Update local storage
       await saveAllLocal(memoriesList);
       renderTimeline();
 
-      // Delete from Supabase
       if (supabaseClient && navigator.onLine) {
         try {
           await supabaseClient.from("memories").delete().eq("id", id);
@@ -537,75 +546,61 @@
         ? new Date(dateVal).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
         : 'Timeless';
 
-      if (editingMemoryId) {
-        // --- EDIT EXISTING ---
-        const item = memoriesList.find(m => m.id === editingMemoryId);
-        item.note = note;
-        item.imgData = imgData;
-        item.date = formattedDate;
-        item.rawDate = dateVal;
+      const recordId = editingMemoryId || ("mem_" + Date.now());
+      const posVal = document.getElementById("insert-position") ? document.getElementById("insert-position").value : "end";
 
-        const encrypted = await encryptPayload(item, activePass);
-        await saveAllLocal(memoriesList);
+      const memoryObj = {
+        id: recordId,
+        note: note,
+        imgData: imgData,
+        date: formattedDate,
+        rawDate: dateVal,
+        order: Date.now()
+      };
 
-        if (supabaseClient && navigator.onLine) {
-          status.innerText = "Syncing changes...";
-          try {
-            await supabaseClient.from("memories").update({
-              ciphertext: encrypted.ciphertext,
-              iv: encrypted.iv,
-              salt: encrypted.salt
-            }).eq("id", editingMemoryId);
-          } catch (e) { console.warn("Supabase update error:", e); }
-        }
+      const encrypted = await encryptPayload(memoryObj, activePass);
+
+      if (!supabaseClient) {
+        alert("Supabase client connection missing.");
       } else {
-        // --- ADD / INSERT IN-BETWEEN ---
-        const recordId = "mem_" + Date.now();
-        const posVal = document.getElementById("insert-position").value;
-
-        const newMemory = {
+        status.innerText = "Syncing with cloud...";
+        const { error } = await supabaseClient.from("memories").upsert({
           id: recordId,
-          note: note,
-          imgData: imgData,
-          date: formattedDate,
-          rawDate: dateVal,
-          order: Date.now()
-        };
+          ciphertext: encrypted.ciphertext,
+          iv: encrypted.iv,
+          salt: encrypted.salt
+        });
 
-        if (posVal === "start") {
-          memoriesList.unshift(newMemory);
-        } else if (posVal.startsWith("after_")) {
-          const targetIndex = parseInt(posVal.split("_")[1], 10);
-          memoriesList.splice(targetIndex + 1, 0, newMemory);
-        } else {
-          memoriesList.push(newMemory);
-        }
-
-        // Re-index order property
-        memoriesList.forEach((mem, idx) => { mem.order = idx * 10; });
-
-        const encrypted = await encryptPayload(newMemory, activePass);
-        await saveAllLocal(memoriesList);
-
-        if (supabaseClient && navigator.onLine) {
-          status.innerText = "Syncing with cloud...";
-          try {
-            await supabaseClient.from("memories").insert({
-              id: recordId,
-              ciphertext: encrypted.ciphertext,
-              iv: encrypted.iv,
-              salt: encrypted.salt
-            });
-          } catch (e) { console.warn("Supabase insert error:", e); }
+        if (error) {
+          alert("Cloud Sync Failed: " + error.message);
+          status.innerText = "Failed to sync.";
+          return;
         }
       }
+
+      if (editingMemoryId) {
+        const idx = memoriesList.findIndex(m => m.id === editingMemoryId);
+        if (idx !== -1) memoriesList[idx] = memoryObj;
+      } else {
+        if (posVal === "start") {
+          memoriesList.unshift(memoryObj);
+        } else if (posVal.startsWith("after_")) {
+          const targetIndex = parseInt(posVal.split("_")[1], 10);
+          memoriesList.splice(targetIndex + 1, 0, memoryObj);
+        } else {
+          memoriesList.push(memoryObj);
+        }
+      }
+
+      memoriesList.forEach((mem, idx) => { mem.order = idx * 10; });
+      await saveAllLocal(memoriesList);
 
       renderTimeline();
       document.getElementById("memory-modal").style.display = "none";
       status.innerText = "";
     });
 
-    // --- 7. EVENT LISTENERS ---
+    // --- 7. AUTO-LOGIN ON REFRESH & EVENT LISTENERS ---
     document.getElementById("unlock-btn").addEventListener("click", handleUnlock);
     document.getElementById("gate-pass").addEventListener("keydown", (e) => {
       if (e.key === "Enter") handleUnlock();
@@ -613,6 +608,14 @@
     document.getElementById("fab-btn").addEventListener("click", openAddModal);
     document.getElementById("cancel-btn").addEventListener("click", () => {
       document.getElementById("memory-modal").style.display = "none";
+    });
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const savedPass = sessionStorage.getItem("thread_session_key");
+      if (savedPass) {
+        document.getElementById("gate-pass").value = savedPass;
+        handleUnlock();
+      }
     });
 
     // --- 8. CANVAS STARS ---
