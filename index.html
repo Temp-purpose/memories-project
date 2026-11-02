@@ -195,7 +195,6 @@
 
   <canvas id="star-canvas"></canvas>
 
-  <!-- Lock Screen -->
   <div id="gate">
     <div class="gate-box">
       <h2>The Thread</h2>
@@ -206,7 +205,6 @@
     </div>
   </div>
 
-  <!-- App Main Screen -->
   <div id="app-view">
     <header>
       <h1>Our Constellation Thread</h1>
@@ -218,7 +216,6 @@
     <button class="fab" id="fab-btn">+</button>
   </div>
 
-  <!-- Modal for Adding and Editing -->
   <div class="modal" id="memory-modal">
     <div class="modal-box">
       <h3 id="modal-title">Add Memory</h3>
@@ -248,9 +245,8 @@
   </div>
 
   <script>
-    // --- 1. CONFIGURATION ---
-    const SUPABASE_URL = "https://mvodaipgbssaqxsabsmg.supabase.co"; 
-    const SUPABASE_ANON_KEY = "sb_publishable_EBAAhme61mn69gpETvm3RQ_9uX6x7FS";
+    const SUPABASE_URL = "https://mvodaipgbssaqxsabsmg.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_EBAAhme61mn69gpETvm3RQ_9uX6xXw";
 
     let supabaseClient = null;
     if (window.supabase) {
@@ -266,7 +262,6 @@
     let editingMemoryId = null;
     let existingImgData = null;
 
-    // --- 2. INDEXEDDB SETUP ---
     function openLocalDB() {
       return new Promise((resolve, reject) => {
         const req = indexedDB.open("ConstellationDB", 2);
@@ -304,11 +299,35 @@
       } catch (e) { return []; }
     }
 
-    // --- 3. ZERO-KNOWLEDGE AES-256 WEBCRYPTO ---
+    function bufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i += 8192) {
+        const chunk = bytes.subarray(i, Math.min(i + 8192, len));
+        binary += String.fromCharCode.apply(null, chunk);
+      }
+      return btoa(binary);
+    }
+
+    function base64ToBuffer(base64) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
     async function deriveKey(passphrase, saltBytes) {
+      if (!passphrase) throw new Error("Passphrase missing. Please unlock again.");
       const enc = new TextEncoder();
       const baseKey = await crypto.subtle.importKey(
-        "raw", enc.encode(passphrase), "PBKDF2", false, ["deriveKey"]
+        "raw",
+        enc.encode(passphrase),
+        "PBKDF2",
+        false,
+        ["deriveKey"]
       );
       return crypto.subtle.deriveKey(
         { name: "PBKDF2", salt: saltBytes, iterations: 100000, hash: "SHA-256" },
@@ -324,26 +343,25 @@
       const iv = crypto.getRandomValues(new Uint8Array(12));
       const key = await deriveKey(passphrase, salt);
       const encoded = new TextEncoder().encode(JSON.stringify(plainObj));
-      const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+      const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, encoded);
 
       return {
-        ciphertext: btoa(String.fromCharCode(...new Uint8Array(cipher))),
-        iv: btoa(String.fromCharCode(...iv)),
-        salt: btoa(String.fromCharCode(...salt))
+        ciphertext: bufferToBase64(cipher),
+        iv: bufferToBase64(iv),
+        salt: bufferToBase64(salt)
       };
     }
 
     async function decryptPayload(ciphertext, ivStr, saltStr, passphrase) {
-      const salt = Uint8Array.from(atob(saltStr), c => c.charCodeAt(0));
-      const iv = Uint8Array.from(atob(ivStr), c => c.charCodeAt(0));
-      const cipherBytes = Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0));
+      const salt = new Uint8Array(base64ToBuffer(saltStr));
+      const iv = new Uint8Array(base64ToBuffer(ivStr));
+      const cipherBytes = base64ToBuffer(ciphertext);
       const key = await deriveKey(passphrase, salt);
       
       const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherBytes);
       return JSON.parse(new TextDecoder().decode(decrypted));
     }
 
-    // --- 4. VERIFIED UNLOCK & TIMELINE FETCH ---
     async function handleUnlock() {
       const passInput = document.getElementById("gate-pass");
       const pass = passInput.value.trim();
@@ -356,7 +374,6 @@
       activePass = pass;
       statusEl.innerText = "Connecting to thread...";
 
-      // Fetch remote records from Supabase first
       if (supabaseClient && navigator.onLine) {
         try {
           const { data, error } = await supabaseClient.from("memories").select("*");
@@ -392,7 +409,6 @@
         }
       }
 
-      // If no remote records exist yet, check local cache
       const local = await getAllLocal();
       if (local && local.length > 0) {
         memoriesList = local.sort((a,b) => (a.order || 0) - (b.order || 0));
@@ -406,7 +422,6 @@
       document.getElementById("app-view").style.display = "block";
     }
 
-    // --- 5. TIMELINE RENDERING ---
     function renderTimeline() {
       const container = document.getElementById("timeline-container");
       container.innerHTML = "";
@@ -441,7 +456,6 @@
       return d.innerHTML;
     }
 
-    // --- 6. MODAL ACTIONS (ADD, INSERT, EDIT, DELETE) ---
     function updatePositionDropdown() {
       const select = document.getElementById("insert-position");
       select.innerHTML = `
@@ -508,7 +522,7 @@
           img.onload = () => {
             const canvas = document.createElement("canvas");
             let w = img.width, h = img.height;
-            const maxDim = 1200;
+            const maxDim = 1000;
             if (w > maxDim || h > maxDim) {
               if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
               else { w = Math.round((w * maxDim) / h); h = maxDim; }
@@ -516,7 +530,7 @@
             canvas.width = w; canvas.height = h;
             const ctx = canvas.getContext("2d");
             ctx.drawImage(img, 0, 0, w, h);
-            resolve(canvas.toDataURL("image/jpeg", 0.75));
+            resolve(canvas.toDataURL("image/jpeg", 0.7));
           };
           img.src = e.target.result;
         };
@@ -530,39 +544,53 @@
       const status = document.getElementById("upload-status");
       const dateVal = document.getElementById("memory-date").value;
 
-      if (!note && !fileInput.files[0] && !existingImgData) {
+      if (!activePass) {
+        activePass = sessionStorage.getItem("thread_session_key") || "";
+      }
+      if (!activePass) {
+        alert("Session expired. Please refresh and enter passphrase again.");
+        return;
+      }
+
+      if (!note && (!fileInput.files || !fileInput.files[0]) && !existingImgData) {
         alert("Please write a note or select an image.");
         return;
       }
 
-      status.innerText = "Encrypting...";
+      status.innerText = "Compressing photo...";
 
-      let imgData = existingImgData;
-      if (fileInput.files && fileInput.files[0]) {
-        imgData = await processImage(fileInput.files[0]);
-      }
+      try {
+        let imgData = existingImgData;
+        if (fileInput.files && fileInput.files[0]) {
+          imgData = await processImage(fileInput.files[0]);
+        }
 
-      const formattedDate = dateVal 
-        ? new Date(dateVal).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
-        : 'Timeless';
+        status.innerText = "Encrypting...";
 
-      const recordId = editingMemoryId || ("mem_" + Date.now());
-      const posVal = document.getElementById("insert-position") ? document.getElementById("insert-position").value : "end";
+        const formattedDate = dateVal 
+          ? new Date(dateVal).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
+          : 'Timeless';
 
-      const memoryObj = {
-        id: recordId,
-        note: note,
-        imgData: imgData,
-        date: formattedDate,
-        rawDate: dateVal,
-        order: Date.now()
-      };
+        const recordId = editingMemoryId || ("mem_" + Date.now());
+        const posVal = document.getElementById("insert-position") ? document.getElementById("insert-position").value : "end";
 
-      const encrypted = await encryptPayload(memoryObj, activePass);
+        const memoryObj = {
+          id: recordId,
+          note: note,
+          imgData: imgData,
+          date: formattedDate,
+          rawDate: dateVal,
+          order: Date.now()
+        };
 
-      if (!supabaseClient) {
-        alert("Supabase client connection missing.");
-      } else {
+        const encrypted = await encryptPayload(memoryObj, activePass);
+
+        if (!supabaseClient) {
+          alert("Supabase client is not connected.");
+          status.innerText = "";
+          return;
+        }
+
         status.innerText = "Syncing with cloud...";
         const { error } = await supabaseClient.from("memories").upsert({
           id: recordId,
@@ -576,31 +604,34 @@
           status.innerText = "Failed to sync.";
           return;
         }
-      }
 
-      if (editingMemoryId) {
-        const idx = memoriesList.findIndex(m => m.id === editingMemoryId);
-        if (idx !== -1) memoriesList[idx] = memoryObj;
-      } else {
-        if (posVal === "start") {
-          memoriesList.unshift(memoryObj);
-        } else if (posVal.startsWith("after_")) {
-          const targetIndex = parseInt(posVal.split("_")[1], 10);
-          memoriesList.splice(targetIndex + 1, 0, memoryObj);
+        if (editingMemoryId) {
+          const idx = memoriesList.findIndex(m => m.id === editingMemoryId);
+          if (idx !== -1) memoriesList[idx] = memoryObj;
         } else {
-          memoriesList.push(memoryObj);
+          if (posVal === "start") {
+            memoriesList.unshift(memoryObj);
+          } else if (posVal.startsWith("after_")) {
+            const targetIndex = parseInt(posVal.split("_")[1], 10);
+            memoriesList.splice(targetIndex + 1, 0, memoryObj);
+          } else {
+            memoriesList.push(memoryObj);
+          }
         }
+
+        memoriesList.forEach((mem, idx) => { mem.order = idx * 10; });
+        await saveAllLocal(memoriesList);
+
+        renderTimeline();
+        document.getElementById("memory-modal").style.display = "none";
+        status.innerText = "";
+      } catch (err) {
+        console.error("Save error:", err);
+        alert("Operation failed: " + err.message);
+        status.innerText = "Error occurred.";
       }
-
-      memoriesList.forEach((mem, idx) => { mem.order = idx * 10; });
-      await saveAllLocal(memoriesList);
-
-      renderTimeline();
-      document.getElementById("memory-modal").style.display = "none";
-      status.innerText = "";
     });
 
-    // --- 7. AUTO-LOGIN ON REFRESH & EVENT LISTENERS ---
     document.getElementById("unlock-btn").addEventListener("click", handleUnlock);
     document.getElementById("gate-pass").addEventListener("keydown", (e) => {
       if (e.key === "Enter") handleUnlock();
@@ -618,7 +649,6 @@
       }
     });
 
-    // --- 8. CANVAS STARS ---
     const canvas = document.getElementById("star-canvas");
     const ctx = canvas.getContext("2d");
     let stars = [];
